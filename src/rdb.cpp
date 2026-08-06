@@ -27,12 +27,13 @@ std::string read_string(std::ifstream& file) {
         return s;
     } 
     else if (bits == 0b10){
-        uint32_t len;
-        file.read(reinterpret_cast<char*>(&len), 4);
+        uint8_t buf[4];
+        file.read(reinterpret_cast<char*>(buf), 4);
+        uint32_t len = (buf[0] << 24) | (buf[1] << 16) | (buf[2] << 8) | buf[3];
         std::string s(len, '\0');
         if (len > 0) file.read(&s[0], len);
         return s;
-    } 
+    }
     else if (bits == 0b11){
         uint8_t type = first & 0x3F;
         if (type == 0){ // 8-bit signed int
@@ -68,9 +69,9 @@ static int read_length(std::ifstream& file) {
         return ((first & 0x3F) << 8) | second;
     }
     else if (bits == 0b10){
-        uint32_t len = 0;
-        file.read(reinterpret_cast<char*>(&len), 4);
-        return len;
+        uint8_t buf[4];
+        file.read(reinterpret_cast<char*>(buf), 4);
+        return (buf[0] << 24) | (buf[1] << 16) | (buf[2] << 8) | buf[3];
     }
     else if (bits == 0b11) {
         uint8_t encoding_type = first & 0x3F;
