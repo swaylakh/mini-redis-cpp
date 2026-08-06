@@ -56,3 +56,6 @@ resume.pdf
 # Editor
 .vscode/
 
+# Local working context - not for the public repo
+CLAUDE.md
+
