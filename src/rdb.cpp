@@ -236,7 +236,8 @@ void load_rdb_file(const std::string& path, std::unordered_map<std::string, Entr
 }
 
 
-void save_rdb_file(const std::string& path, const std::unordered_map<std::string, Entry>& db){
+// Build the RDB snapshot as a byte vector (reused by SAVE and PSYNC)
+std::vector<uint8_t> build_rdb(const std::unordered_map<std::string, Entry>& db){
     std::vector<uint8_t> buf;
 
     // Header: "REDIS0011" (9 bytes)
@@ -288,6 +289,12 @@ void save_rdb_file(const std::string& path, const std::unordered_map<std::string
     // CRC64 checksum over everything written so far
     uint64_t checksum = crc64(buf);
     write_bytes(buf, &checksum, 8); // little-endian
+
+    return buf;
+}
+
+void save_rdb_file(const std::string& path, const std::unordered_map<std::string, Entry>& db){
+    std::vector<uint8_t> buf = build_rdb(db);
 
     // Write the whole buffer to disk atomically
     std::ofstream file(path, std::ios::binary);
