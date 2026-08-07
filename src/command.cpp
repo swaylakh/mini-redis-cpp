@@ -77,7 +77,8 @@ std::string process_command(int fd, Client& client, std::vector<std::string>& ar
 	std::transform(cmd.begin(), cmd.end(), cmd.begin(), ::toupper); // case-insensitive commands
 
 	// Replicas reject write commands
-	if (!replicaof_host.empty() && fd != master_fd && (cmd == "SET" || cmd == "DEL")){
+	if (!replicaof_host.empty() && fd != master_fd
+		&& (cmd == "SET" || cmd == "DEL" || cmd == "EXPIRE")){
 		return "-READONLY You can't write against a read only replica\r\n";
 	}
 
@@ -145,6 +146,63 @@ std::string process_command(int fd, Client& client, std::vector<std::string>& ar
 			response += "$" + std::to_string(key.size()) + "\r\n" + key + "\r\n";
 		}
 		return response;
+	}
+
+	else if (cmd == "DEL" && args.size() >= 2){
+		// Delete one or more keys, return count of keys that existed
+		int deleted = 0;
+		for (size_t i = 1; i < args.size(); i++){
+			deleted += db.erase(args[i]);
+		}
+		propagate_to_replicas(args);
+		return ":" + std::to_string(deleted) + "\r\n";
+	}
+	else if (cmd == "EXISTS" && args.size() >= 2){
+		auto it = db.find(args[1]);
+		if (it == db.end()) return ":0\r\n";
+		if (std::chrono::system_clock::now() > it->second.expires_at){
+			db.erase(it); // lazy expiration
+			return ":0\r\n";
+		}
+		return ":1\r\n";
+	}
+	else if (cmd == "TTL" && args.size() >= 2){
+		auto it = db.find(args[1]);
+		if (it == db.end()) return ":-2\r\n"; // key doesn't exist
+		if (std::chrono::system_clock::now() > it->second.expires_at){
+			db.erase(it);
+			return ":-2\r\n";
+		}
+		if (it->second.expires_at == std::chrono::system_clock::time_point::max())
+			return ":-1\r\n"; // no expiry set
+		auto remaining = std::chrono::duration_cast<std::chrono::seconds>(
+			it->second.expires_at - std::chrono::system_clock::now()).count();
+		return ":" + std::to_string(remaining) + "\r\n";
+	}
+	else if (cmd == "PTTL" && args.size() >= 2){
+		auto it = db.find(args[1]);
+		if (it == db.end()) return ":-2\r\n";
+		if (std::chrono::system_clock::now() > it->second.expires_at){
+			db.erase(it);
+			return ":-2\r\n";
+		}
+		if (it->second.expires_at == std::chrono::system_clock::time_point::max())
+			return ":-1\r\n";
+		auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(
+			it->second.expires_at - std::chrono::system_clock::now()).count();
+		return ":" + std::to_string(remaining) + "\r\n";
+	}
+	else if (cmd == "EXPIRE" && args.size() >= 3){
+		auto it = db.find(args[1]);
+		if (it == db.end()) return ":0\r\n"; // key doesn't exist
+		if (std::chrono::system_clock::now() > it->second.expires_at){
+			db.erase(it);
+			return ":0\r\n";
+		}
+		int seconds = std::stoi(args[2]);
+		it->second.expires_at = std::chrono::system_clock::now() + std::chrono::seconds(seconds);
+		propagate_to_replicas(args);
+		return ":1\r\n";
 	}
 
 	else if (cmd == "SAVE"){
