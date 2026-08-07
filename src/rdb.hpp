@@ -11,5 +11,6 @@ struct Entry {
 };
 
 void load_rdb_file(const std::string& path, std::unordered_map<std::string, Entry>& db);
+void save_rdb_file(const std::string& path, const std::unordered_map<std::string, Entry>& db);
 
 #endif

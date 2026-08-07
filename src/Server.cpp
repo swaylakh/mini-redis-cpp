@@ -146,6 +146,12 @@ std::string process_command(std::vector<std::string>& args){
 		return response;
 	}
 
+	else if (cmd == "SAVE"){
+		const std::string rdb_path = dir.empty() ? "dump.rdb" : dir + "/" + dbfilename;
+		save_rdb_file(rdb_path, db);
+		return "+OK\r\n";
+	}
+
 	return "-ERR unknown command '" + args[0] + "'\r\n";
 }
 
