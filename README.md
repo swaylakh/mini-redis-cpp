@@ -26,6 +26,11 @@ Real `redis-cli` connects to it and issues commands over the standard RESP wire 
 | `GET <key>` | returns the value, or a null bulk string if missing or expired |
 | `KEYS *` | returns all live keys, sweeping expired ones as it walks |
 | `CONFIG GET dir\|dbfilename` | returns the requested config parameter |
+| `DEL <key> [key ...]` | deletes one or more keys, returns count deleted |
+| `EXISTS <key>` | returns 1 if key exists, 0 otherwise |
+| `EXPIRE <key> <seconds>` | sets a TTL on an existing key |
+| `TTL <key>` | remaining lifetime in seconds (-1 = no expiry, -2 = missing) |
+| `PTTL <key>` | remaining lifetime in milliseconds |
 | `SAVE` | writes an RDB snapshot to disk |
 | `INFO replication` | reports role, replication ID, and offset |
 
@@ -103,4 +108,4 @@ Scoped deliberately — this implements the string-keyspace subset:
   value types stop the parser. LZF-compressed strings are not decompressed.
 - **No partial resync.** Replica reconnection always triggers a full RDB transfer (no replication
   backlog).
-- No `DEL`, `TTL`, `EXPIRE`, `WAIT`, transactions, pub/sub, or RESP3.
+- No `WAIT`, transactions, pub/sub, streams, or RESP3.
