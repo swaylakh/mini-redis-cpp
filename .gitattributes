@@ -1,1 +1,6 @@
 * text=auto
+
+# Shell scripts and C++ sources must stay LF — CRLF breaks the shebang under WSL
+*.sh text eol=lf
+*.cpp text eol=lf
+*.hpp text eol=lf
