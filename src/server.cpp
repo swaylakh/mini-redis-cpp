@@ -1,4 +1,5 @@
 #include <iostream>
+#include <cstring>
 #include <cstdlib>
 #include <string>
 #include <unistd.h>
@@ -151,9 +152,16 @@ int main(int argc, char **argv){
 				// Parse and process as many complete commands as possible
 				std::string outbuf;
 				size_t pos = 0;
+				bool protocol_error = false;
 				while (pos < client.buf.size()){
 					std::vector<std::string> args;
 					size_t consumed = try_parse_command(client.buf, pos, args);
+					if (consumed == PARSE_ERROR){
+						// Malformed input: tell the client and drop just this
+						// connection, rather than letting it kill the server.
+						protocol_error = true;
+						break;
+					}
 					if (consumed == 0) break; // incomplete command, wait for more data
 					if (!args.empty()){
 						outbuf += process_command(fd, client, args);
@@ -163,6 +171,22 @@ int main(int argc, char **argv){
 
 				// Remove consumed bytes from the buffer
 				if (pos > 0) client.buf.erase(0, pos);
+
+				// Drop a connection that sent malformed input. Checked before the
+				// master_fd shortcut below, otherwise a bad byte from the master
+				// would leave an unparseable buffer that never drains.
+				if (protocol_error){
+					// The master gets no error reply — it is not a client.
+					if (fd != master_fd){
+						const char* err = "-ERR Protocol error: invalid multibulk length\r\n";
+						if (!outbuf.empty()) send(fd, outbuf.c_str(), outbuf.size(), MSG_NOSIGNAL);
+						send(fd, err, strlen(err), MSG_NOSIGNAL);
+					}
+					epoll_ctl(epoll_fd, EPOLL_CTL_DEL, fd, nullptr);
+					close(fd);
+					clients.erase(fd);
+					continue;
+				}
 
 				// Don't reply to the master — propagated commands are fire-and-forget
 				if (fd == master_fd) continue;

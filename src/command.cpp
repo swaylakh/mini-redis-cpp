@@ -4,8 +4,29 @@
 #include <chrono>
 #include <sys/socket.h>
 
+// Parse a RESP integer field: the text between 'from' and 'to' must be an
+// optional '-' followed by digits and nothing else. Returns false on anything
+// malformed (empty, non-numeric, or implausibly large), so a hostile client
+// cannot reach std::stoi and throw an exception out of the event loop.
+static bool parse_int(const std::string& buf, size_t from, size_t to, long long& out){
+	if (to <= from || to - from > 20) return false; // empty or absurdly long
+	size_t i = from;
+	bool neg = false;
+	if (buf[i] == '-'){ neg = true; i++; } // optional leading sign
+	if (i == to) return false; // a '-' with no digits after it
+	long long val = 0;
+	for (; i < to; i++){
+		if (buf[i] < '0' || buf[i] > '9') return false; // reject any non-digit
+		val = val * 10 + (buf[i] - '0');
+		if (val > 100000000LL) return false; // cap well below overflow
+	}
+	out = neg ? -val : val;
+	return true;
+}
+
 // Parse one complete RESP command from buf starting at 'start'.
-// Returns bytes consumed, or 0 if the command is incomplete.
+// Returns bytes consumed, 0 if the command is incomplete, or PARSE_ERROR
+// if the input is malformed and the connection should be dropped.
 size_t try_parse_command(const std::string& buf, size_t start, std::vector<std::string>& args){
 	args.clear();
 	if (start >= buf.size()) return 0;
@@ -15,16 +36,21 @@ size_t try_parse_command(const std::string& buf, size_t start, std::vector<std::
 		size_t pos = start;
 		size_t nl = buf.find("\r\n", pos);
 		if (nl == std::string::npos) return 0;
-		int num_args = std::stoi(buf.substr(pos + 1, nl - pos - 1));
+		long long num_args;
+		if (!parse_int(buf, pos + 1, nl, num_args)) return PARSE_ERROR; // e.g. *abc
+		if (num_args < 0) return PARSE_ERROR;  // a request needs a real element count
 		pos = nl + 2;
 
-		for (int i = 0; i < num_args; i++){
+		for (long long i = 0; i < num_args; i++){
 			nl = buf.find("\r\n", pos);
 			if (nl == std::string::npos) return 0;
-			if (pos >= buf.size() || buf[pos] != '$') return 0;
-			int len = std::stoi(buf.substr(pos + 1, nl - pos - 1));
+			if (pos >= buf.size() || buf[pos] != '$') return PARSE_ERROR; // expected a bulk string
+			long long len;
+			if (!parse_int(buf, pos + 1, nl, len)) return PARSE_ERROR; // e.g. $xyz
+			if (len < 0) return PARSE_ERROR; // null bulk strings are invalid in a request
 			pos = nl + 2;
-			if (pos + len + 2 > buf.size()) return 0; // need len bytes + \r\n
+			// Compare without overflowing: len is already bounded by parse_int.
+			if (len + 2 > (long long)(buf.size() - pos)) return 0; // need len bytes + CRLF
 			args.push_back(buf.substr(pos, len));
 			pos += len + 2;
 		}
@@ -94,7 +120,10 @@ std::string process_command(int fd, Client& client, std::vector<std::string>& ar
 			std::string flag = args[3];
 			std::transform(flag.begin(), flag.end(), flag.begin(), ::toupper);
 			if (flag == "PX"){
-				int px = std::stoi(args[4]);
+				long long px;
+				// Reject a non-numeric TTL instead of letting stoi throw.
+				if (!parse_int(args[4], 0, args[4].size(), px) || px < 0)
+					return "-ERR value is not an integer or out of range\r\n";
 				expiry_time = std::chrono::system_clock::now() + std::chrono::milliseconds(px);
 			}
 		}
@@ -199,7 +228,10 @@ std::string process_command(int fd, Client& client, std::vector<std::string>& ar
 			db.erase(it);
 			return ":0\r\n";
 		}
-		int seconds = std::stoi(args[2]);
+		long long seconds;
+		// Reject a non-numeric expiry instead of letting stoi throw.
+		if (!parse_int(args[2], 0, args[2].size(), seconds))
+			return "-ERR value is not an integer or out of range\r\n";
 		it->second.expires_at = std::chrono::system_clock::now() + std::chrono::seconds(seconds);
 		propagate_to_replicas(args);
 		return ":1\r\n";

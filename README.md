@@ -108,4 +108,22 @@ Scoped deliberately — this implements the string-keyspace subset:
   value types stop the parser. LZF-compressed strings are not decompressed.
 - **No partial resync.** Replica reconnection always triggers a full RDB transfer (no replication
   backlog).
+- **No command arity validation.** A command with too few arguments is rejected only where the
+  handler happens to check; there is no central dispatch table enforcing arity.
 - No `WAIT`, transactions, pub/sub, streams, or RESP3.
+
+## Tests
+
+`tests/run_all.sh` builds the server and runs every suite. Each script runs inside a private
+network namespace (`unshare -rn`) so it can bind port 6379 even when a real `redis-server` is
+already listening on the host.
+
+| Suite | Covers |
+|---|---|
+| `commands.sh` | `DEL`, `EXISTS`, `TTL`, `PTTL`, `EXPIRE` semantics |
+| `info.sh` | `INFO replication` fields and `REPLCONF` acknowledgements |
+| `protocol.sh` | malformed RESP must not crash the server; inline commands still work |
+| `psync.sh` | wire-level `PSYNC` handshake, `FULLRESYNC` line, RDB payload |
+| `propagation.sh` | writes reach an established replica link |
+| `replication.sh` | end-to-end master/replica, RDB transfer, read-only guard |
+| `rdb_roundtrip.sh` | `SAVE` -> restart -> keys and TTLs survive; CRC64 detects corruption |

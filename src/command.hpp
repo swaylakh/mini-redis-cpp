@@ -5,7 +5,12 @@
 #include <vector>
 #include "server.hpp"
 
-// Parse one RESP command from buf at offset 'start', returns bytes consumed (0 if incomplete)
+// Returned by try_parse_command when the input is malformed and the connection
+// should be closed, as distinct from 0 which means "incomplete, wait for more".
+constexpr size_t PARSE_ERROR = static_cast<size_t>(-1);
+
+// Parse one RESP command from buf at offset 'start', returns bytes consumed
+// (0 if incomplete, PARSE_ERROR if malformed)
 size_t try_parse_command(const std::string& buf, size_t start, std::vector<std::string>& args);
 
 // Encode args back into RESP wire format: *N\r\n $len\r\n arg\r\n ...
